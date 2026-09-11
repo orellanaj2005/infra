@@ -1,0 +1,34 @@
+services:
+  bff:
+    image: rutaexpress/bff:latest
+    ports: ["8080:8080"]
+    env_file: .env
+    depends_on: [shipments-svc, catalog-svc]
+
+  shipments-svc:
+    image: rutaexpress/shipments:latest
+    ports: ["8081:8081"]
+    env_file: .env
+
+  catalog-svc:
+    image: rutaexpress/catalog:latest
+    ports: ["8082:8082"]
+    env_file: .env
+
+  notify-svc:
+    image: rutaexpress/notify:latest
+    env_file: .env
+
+  audit-svc:
+    image: rutaexpress/audit:latest
+    ports: ["8083:8083"]
+    env_file: .env
+
+  report-svc:
+    image: rutaexpress/report:latest
+    ports: ["8084:8084"]
+    env_file: .env
+
+networks:
+  default:
+    name: rutaexpress-net

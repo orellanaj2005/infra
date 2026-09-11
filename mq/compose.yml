@@ -1,0 +1,14 @@
+services:
+  rabbit1:
+    image: rabbitmq:3-management
+    hostname: rabbit1
+    environment:
+      RABBITMQ_ERLANG_COOKIE: "rutaexpress-cookie"
+    ports: ["5672:5672", "15672:15672"]
+
+  rabbit2:
+    image: rabbitmq:3-management
+    hostname: rabbit2
+    environment:
+      RABBITMQ_ERLANG_COOKIE: "rutaexpress-cookie"
+    depends_on: [rabbit1]
