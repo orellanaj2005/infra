@@ -29,6 +29,16 @@ services:
     ports: ["8084:8084"]
     env_file: .env
 
+  rabbitmq-admin-svc:
+    image: rutaexpress/rabbitmq-admin:latest
+    ports: ["8085:8085"]
+    env_file: .env
+
+  kafka-admin-svc:
+    image: rutaexpress/kafka-admin:latest
+    ports: ["8086:8086"]
+    env_file: .env
+
 networks:
   default:
     name: rutaexpress-net
