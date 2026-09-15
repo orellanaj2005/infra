@@ -1,0 +1,11 @@
+networks:
+  rutaexpress-shared:
+    external: true
+
+services:
+  kafka1:
+    networks: [default, rutaexpress-shared]
+  kafka2:
+    networks: [default, rutaexpress-shared]
+  kafka3:
+    networks: [default, rutaexpress-shared]

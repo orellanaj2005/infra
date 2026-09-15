@@ -1,0 +1,29 @@
+networks:
+  rutaexpress-shared:
+    external: true
+
+services:
+  bff:
+    build: ../../ms-rutaexpress-bff
+    networks: [default, rutaexpress-shared]
+  shipments-svc:
+    build: ../../ms-rutaexpress-shipments
+    networks: [default, rutaexpress-shared]
+  catalog-svc:
+    build: ../../ms-rutaexpress-catalog
+    networks: [default, rutaexpress-shared]
+  notify-svc:
+    build: ../../ms-rutaexpress-notify
+    networks: [default, rutaexpress-shared]
+  audit-svc:
+    build: ../../ms-rutaexpress-audit
+    networks: [default, rutaexpress-shared]
+  report-svc:
+    build: ../../ms-rutaexpress-report
+    networks: [default, rutaexpress-shared]
+  rabbitmq-admin-svc:
+    build: ../../ms-rutaexpress-rabbitmq-admin
+    networks: [default, rutaexpress-shared]
+  kafka-admin-svc:
+    build: ../../ms-rutaexpress-kafka-admin
+    networks: [default, rutaexpress-shared]
