@@ -25,8 +25,15 @@ services:
     build: ../../ms-rutaexpress-rabbitmq-admin
     networks: [default, rutaexpress-shared]
   frontend-svc:
-    build: ../../frontend-rutaexpress
-    ports: ["5173:5173"]
+    build:
+      context: ../../frontend-rutaexpress
+      args:
+        VITE_TENANT_ID: ${VITE_TENANT_ID}
+        VITE_SPA_CLIENT_ID: ${VITE_SPA_CLIENT_ID}
+        VITE_API_SCOPE: ${VITE_API_SCOPE}
+        VITE_REDIRECT_URI: ${VITE_REDIRECT_URI}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    ports: ["5173:80"]
     depends_on: [bff]
     networks: [default, rutaexpress-shared]
   kafka-admin-svc:
