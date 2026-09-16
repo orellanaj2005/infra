@@ -24,6 +24,11 @@ services:
   rabbitmq-admin-svc:
     build: ../../ms-rutaexpress-rabbitmq-admin
     networks: [default, rutaexpress-shared]
+  frontend-svc:
+    build: ../../frontend-rutaexpress
+    ports: ["5173:5173"]
+    depends_on: [bff]
+    networks: [default, rutaexpress-shared]
   kafka-admin-svc:
     build: ../../ms-rutaexpress-kafka-admin
     networks: [default, rutaexpress-shared]

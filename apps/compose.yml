@@ -34,6 +34,12 @@ services:
     ports: ["8085:8085"]
     env_file: .env
 
+  frontend-svc:
+    image: rutaexpress/frontend:latest
+    ports: ["5173:5173"]
+    depends_on: [bff]
+    env_file: .env
+
   kafka-admin-svc:
     image: rutaexpress/kafka-admin:latest
     ports: ["8086:8086"]
