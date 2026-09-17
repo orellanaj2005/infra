@@ -69,7 +69,7 @@ services:
         VITE_API_SCOPE: ${VITE_API_SCOPE}
         VITE_REDIRECT_URI: ${VITE_REDIRECT_URI}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
-    ports: ["${FRONTEND_PORT:-5173}:80"]
+    ports: ["${FRONTEND_PORT:-5173}:443"]
     depends_on: [bff]
     networks: [default, rutaexpress-shared]
   kafka-admin-svc:
