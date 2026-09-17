@@ -3,23 +3,59 @@ networks:
     external: true
 
 services:
+  # Merged into the apps stack instead of relying on host.docker.internal
+  # (Docker Desktop-only magic hostname that doesn't resolve on native Linux,
+  # e.g. the EC2 instances). Reachable by every other service in this file as
+  # "oracle-db" on the default network. Same image/config as the standalone
+  # ms-rutaexpress-db/docker-compose.yml used for local non-Docker dev
+  # (running the services via `mvnw spring-boot:run` against localhost:1522).
+  oracle-db:
+    image: gvenzl/oracle-free:23-slim
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_SYS_PASSWORD:-oracle}
+      ORACLE_DATABASE: ${ORACLE_SERVICE:-XEPDB1}
+      APP_USER: ${ORACLE_USER:-rutaexpress}
+      APP_USER_PASSWORD: ${ORACLE_PASSWORD:-rutaexpress}
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      - ../../ms-rutaexpress-db/initdb:/container-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    networks: [default]
+
   bff:
     build: ../../ms-rutaexpress-bff
     networks: [default, rutaexpress-shared]
   shipments-svc:
     build: ../../ms-rutaexpress-shipments
+    depends_on:
+      oracle-db:
+        condition: service_healthy
     networks: [default, rutaexpress-shared]
   catalog-svc:
     build: ../../ms-rutaexpress-catalog
+    depends_on:
+      oracle-db:
+        condition: service_healthy
     networks: [default, rutaexpress-shared]
   notify-svc:
     build: ../../ms-rutaexpress-notify
     networks: [default, rutaexpress-shared]
   audit-svc:
     build: ../../ms-rutaexpress-audit
+    depends_on:
+      oracle-db:
+        condition: service_healthy
     networks: [default, rutaexpress-shared]
   report-svc:
     build: ../../ms-rutaexpress-report
+    depends_on:
+      oracle-db:
+        condition: service_healthy
     networks: [default, rutaexpress-shared]
   rabbitmq-admin-svc:
     build: ../../ms-rutaexpress-rabbitmq-admin
@@ -39,3 +75,6 @@ services:
   kafka-admin-svc:
     build: ../../ms-rutaexpress-kafka-admin
     networks: [default, rutaexpress-shared]
+
+volumes:
+  oracle-data:
