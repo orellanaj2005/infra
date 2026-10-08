@@ -1,14 +1,38 @@
+x-rabbit-common: &rabbit-common
+  image: rabbitmq:3.13-management
+  restart: unless-stopped
+  mem_limit: 768m
+  environment:
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-rutaexpress-cookie}
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 10s
+    timeout: 10s
+    retries: 12
+    start_period: 30s
+
 services:
   rabbit1:
-    image: rabbitmq:3-management
+    <<: *rabbit-common
     hostname: rabbit1
-    environment:
-      RABBITMQ_ERLANG_COOKIE: "rutaexpress-cookie"
     ports: ["5672:5672", "15672:15672"]
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbit1-data:/var/lib/rabbitmq
 
   rabbit2:
-    image: rabbitmq:3-management
+    <<: *rabbit-common
     hostname: rabbit2
-    environment:
-      RABBITMQ_ERLANG_COOKIE: "rutaexpress-cookie"
-    depends_on: [rabbit1]
+    ports: ["5673:5672", "15673:15672"]
+    volumes:
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbit2-data:/var/lib/rabbitmq
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+
+volumes:
+  rabbit1-data:
+  rabbit2-data:
