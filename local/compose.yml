@@ -1,0 +1,189 @@
+# Entorno local completo de RutaExpress: Oracle, clúster RabbitMQ de 2 nodos, Kafka (3 Zookeeper +
+# 3 brokers) y los 8 microservicios en un solo proyecto. Mismas imágenes y configuración que las
+# instancias EC2 (infra/mq, infra/kafka, infra/apps); como todo comparte la red del proyecto, los
+# servicios se conectan por nombre (rabbit1, kafka1:29092, oracle-db).
+#
+# Uso: cp .env.example .env  (completar TENANT_ID y API_CLIENT_ID)  y luego  docker compose up -d --build
+# Instrucciones completas y prueba del flujo: infra/README.md, sección "Entorno local".
+
+x-rabbit-common: &rabbit-common
+  image: rabbitmq:3.13-management
+  restart: unless-stopped
+  mem_limit: 768m
+  environment:
+    RABBITMQ_ERLANG_COOKIE: rutaexpress-cookie
+    RABBITMQ_DEFAULT_USER: guest
+    RABBITMQ_DEFAULT_PASS: guest
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 10s
+    timeout: 10s
+    retries: 12
+    start_period: 30s
+
+x-zk: &zk
+  image: confluentinc/cp-zookeeper:7.6.0
+  restart: unless-stopped
+  mem_limit: 512m
+
+x-zk-env: &zk-env
+  ZOOKEEPER_CLIENT_PORT: 2181
+  ZOOKEEPER_TICK_TIME: 2000
+  ZOOKEEPER_INIT_LIMIT: 5
+  ZOOKEEPER_SYNC_LIMIT: 2
+  ZOOKEEPER_SERVERS: zk1:2888:3888;zk2:2888:3888;zk3:2888:3888
+  KAFKA_HEAP_OPTS: "-Xms128m -Xmx256m"
+
+x-kafka: &kafka
+  image: confluentinc/cp-kafka:7.6.0
+  restart: unless-stopped
+  mem_limit: 1g
+  depends_on: [zk1, zk2, zk3]
+
+x-kafka-env: &kafka-env
+  KAFKA_ZOOKEEPER_CONNECT: "zk1:2181,zk2:2181,zk3:2181"
+  # INTERNAL: entre brokers y desde los microservicios (red del proyecto).
+  # EXTERNAL: desde el host (localhost:9092-9094), por ejemplo para herramientas locales.
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+
+x-app: &app
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    rabbit1:
+      condition: service_healthy
+    oracle-db:
+      condition: service_healthy
+
+services:
+  # ---------------------------------------------------------------- Oracle
+  oracle-db:
+    image: gvenzl/oracle-free:23-slim
+    environment:
+      ORACLE_PASSWORD: oracle
+      ORACLE_DATABASE: XEPDB1
+      APP_USER: rutaexpress
+      APP_USER_PASSWORD: rutaexpress
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      - ../../ms-rutaexpress-db/initdb:/container-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # ------------------------------------------------- RabbitMQ (igual que ec2-mq)
+  rabbit1:
+    <<: *rabbit-common
+    hostname: rabbit1
+    ports: ["5672:5672", "15672:15672"]
+    volumes:
+      - ../mq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbit1-data:/var/lib/rabbitmq
+
+  rabbit2:
+    <<: *rabbit-common
+    hostname: rabbit2
+    ports: ["5673:5672", "15673:15672"]
+    volumes:
+      - ../mq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - rabbit2-data:/var/lib/rabbitmq
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+
+  # ------------------------------------------------ Kafka (igual que ec2-kafka)
+  zk1:
+    <<: *zk
+    environment: { <<: *zk-env, ZOOKEEPER_SERVER_ID: 1 }
+  zk2:
+    <<: *zk
+    environment: { <<: *zk-env, ZOOKEEPER_SERVER_ID: 2 }
+  zk3:
+    <<: *zk
+    environment: { <<: *zk-env, ZOOKEEPER_SERVER_ID: 3 }
+
+  kafka1:
+    <<: *kafka
+    hostname: kafka1
+    ports: ["9092:9092"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka1:29092,EXTERNAL://localhost:9092"
+  kafka2:
+    <<: *kafka
+    hostname: kafka2
+    ports: ["9093:9093"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 2
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka2:29092,EXTERNAL://localhost:9093"
+  kafka3:
+    <<: *kafka
+    hostname: kafka3
+    ports: ["9094:9094"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 3
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9094"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka3:29092,EXTERNAL://localhost:9094"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
+    mem_limit: 512m
+    ports: ["8090:8080"]
+    depends_on: [kafka1, kafka2, kafka3]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: rutaexpress
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka1:29092,kafka2:29092,kafka3:29092"
+
+  # ------------------------------------------------------- Microservicios
+  bff:
+    <<: *app
+    build: ../../ms-rutaexpress-bff
+    ports: ["8080:8080"]
+  shipments-svc:
+    <<: *app
+    build: ../../ms-rutaexpress-shipments
+    ports: ["8081:8081"]
+  catalog-svc:
+    <<: *app
+    build: ../../ms-rutaexpress-catalog
+    ports: ["8082:8082"]
+  audit-svc:
+    <<: *app
+    build: ../../ms-rutaexpress-audit
+    ports: ["8083:8083"]
+  report-svc:
+    <<: *app
+    build: ../../ms-rutaexpress-report
+    ports: ["8084:8084"]
+  rabbitmq-admin-svc:
+    <<: *app
+    build: ../../ms-rutaexpress-rabbitmq-admin
+    ports: ["8085:8085"]
+  kafka-admin-svc:
+    <<: *app
+    build: ../../ms-rutaexpress-kafka-admin
+    ports: ["8086:8086"]
+  notify-svc:
+    <<: *app
+    build: ../../ms-rutaexpress-notify
+
+volumes:
+  oracle-data:
+  rabbit1-data:
+  rabbit2-data:
