@@ -16,18 +16,34 @@ x-kafka-common: &kafka-common
   restart: unless-stopped
   mem_limit: 1g
   depends_on: [zk1, zk2, zk3]
+  # El broker está sano cuando responde por su listener interno. Se limita el heap
+  # de la herramienta para que no compita en memoria con el broker (mem_limit 1g).
+  healthcheck:
+    test: ["CMD-SHELL", "KAFKA_HEAP_OPTS='-Xmx64m' kafka-broker-api-versions --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+    interval: 15s
+    timeout: 20s
+    retries: 10
+    start_period: 40s
 
+# Configuración común a los 3 brokers (cada broker solo agrega id y listeners).
 x-kafka-env: &kafka-env
   KAFKA_ZOOKEEPER_CONNECT: "zk1:2181,zk2:2181,zk3:2181"
-  # INTERNAL: tráfico entre brokers y kafka-ui (nombres de la red de Docker)
+  # INTERNAL: tráfico entre brokers, kafka-init y kafka-ui (nombres de la red de Docker)
   # EXTERNAL: tráfico desde ec2-apps (IP privada de ec2-kafka)
   KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
   KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  # Replicación y durabilidad (tabla 3.3 del plan): cada partición vive en los 3 brokers
+  # y un mensaje con acks=all se confirma solo cuando está en al menos 2.
   KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_NUM_PARTITIONS: 3
   KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
   KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
   KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
-  KAFKA_MIN_INSYNC_REPLICAS: 2
+  # Los tópicos se crean solo con topics/create-topics.sh o desde kafka-admin,
+  # nunca por un productor o consumidor que escriba mal un nombre.
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_DELETE_TOPIC_ENABLE: "true"
   KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
 
 services:
@@ -79,12 +95,24 @@ services:
       KAFKA_LISTENERS: "INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9094"
       KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka3:29092,EXTERNAL://${KAFKA_EXTERNAL_HOST:-172.31.80.112}:9094"
 
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    restart: unless-stopped
-    mem_limit: 512m
-    ports: ["8090:8080"]
-    depends_on: [kafka1, kafka2, kafka3]
+  # Ejecución única: crea (o ajusta) los 5 tópicos del contrato cuando los 3 brokers
+  # están sanos y luego termina. Es idempotente, así que corre en cada "up" sin riesgo.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    restart: "no"
+    mem_limit: 256m
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      kafka3:
+        condition: service_healthy
     environment:
-      KAFKA_CLUSTERS_0_NAME: rutaexpress
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka1:29092,kafka2:29092,kafka3:29092"
+      BOOTSTRAP_SERVERS: "kafka1:29092,kafka2:29092,kafka3:29092"
+      KAFKA_HEAP_OPTS: "-Xmx128m"
+    volumes:
+      - ./topics:/topics:ro
+    entrypoint: ["bash", "/topics/create-topics.sh"]
+
+# kafka-ui vive en su propio compose: ../kafka-ui/compose.yml
