@@ -6,7 +6,8 @@ Archivos Docker Compose de RutaExpress, uno por instancia EC2.
 |---|---|---|
 | `apps/` | ec2-apps | Microservicios, frontend y Oracle |
 | `mq/` | ec2-mq | Clúster RabbitMQ de 2 nodos |
-| `kafka/` | ec2-kafka | 3 Zookeeper, 3 brokers Kafka y kafka-ui |
+| `kafka/` | ec2-kafka | 3 Zookeeper, 3 brokers Kafka y kafka-init (creación de tópicos) |
+| `kafka-ui/` | ec2-kafka | Kafka UI, en su propio compose |
 | `local/` | PC de desarrollo | Todo lo anterior en un solo proyecto, para validar antes de desplegar |
 
 ## Entorno local
@@ -113,16 +114,59 @@ Cada broker tiene dos listeners:
 
 | Listener | Dirección | Uso |
 |---|---|---|
-| INTERNAL | `kafkaN:29092` | Entre brokers y kafka-ui |
+| INTERNAL | `kafkaN:29092` | Entre brokers, kafka-init y kafka-ui |
 | EXTERNAL | `172.31.80.112:9092/9093/9094` | Desde ec2-apps |
+
+Configuración común de los 3 brokers: `default.replication.factor=3`, `min.insync.replicas=2`,
+`offsets.topic.replication.factor=3`, `num.partitions=3` y `auto.create.topics.enable=false`
+(ningún tópico se crea por error desde un productor o consumidor).
+
+### Levantar el clúster
 
 ```bash
 docker network create rutaexpress-shared 2>/dev/null
 cd kafka
 docker compose up -d
+docker compose ps                 # kafka1..3 "healthy"; kafka-init "exited (0)"
+docker compose logs kafka-init    # detalle de los tópicos creados
 ```
 
-En local, definir `KAFKA_EXTERNAL_HOST=localhost`. kafka-ui queda en el puerto 8090.
+En local, definir `KAFKA_EXTERNAL_HOST=localhost`.
+
+### Tópicos (kafka/topics/create-topics.sh)
+
+`kafka-init` es un servicio de una sola ejecución: espera a que los 3 brokers estén sanos
+(healthcheck + `depends_on`), corre el script y termina. El script es idempotente
+(`--if-not-exists` y luego `kafka-configs --alter`), así que se puede repetir sin riesgo:
+
+```bash
+docker compose run --rm kafka-init
+```
+
+| Tópico | Part. / Rép. | cleanup.policy | Retención | min.insync.replicas |
+|---|---|---|---|---|
+| `shipments.events` | 3 / 3 | delete | 7 días | 2 |
+| `audit.timeline` | 3 / 3 | compact,delete | 30 días | 2 |
+| `notify.DLT`, `audit.DLT`, `report.DLT` | 3 / 3 | delete | 14 días | 2 |
+
+Para agregar un tópico al contrato, sumar una línea `create_topic` al script y agregarlo a la
+lista protegida de `ms-rutaexpress-kafka-admin` (`rutaexpress.kafka.protected-topics`).
+
+### Kafka UI (kafka-ui/)
+
+```bash
+cd kafka-ui
+docker compose up -d              # panel en el puerto 8090
+```
+
+Se conecta a los brokers por la red `rutaexpress-shared` (listener INTERNAL). Si se levanta en
+otra máquina, usar la IP privada:
+
+```bash
+KAFKA_UI_BOOTSTRAP_SERVERS=172.31.80.112:9092,172.31.80.112:9093,172.31.80.112:9094 docker compose up -d
+```
+
+### Conexión desde los microservicios
 
 ```properties
 KAFKA_BOOTSTRAP_SERVERS=172.31.80.112:9092,172.31.80.112:9093,172.31.80.112:9094

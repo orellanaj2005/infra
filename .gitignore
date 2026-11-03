@@ -1,2 +1,9 @@
 .env
 *.log
+
+### Comunes a los 12 repositorios de RutaExpress ###
+target/
+node_modules/
+bin/
+.idea/
+.vscode/
